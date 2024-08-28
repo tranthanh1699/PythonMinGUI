@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext
 import serial
 import serial.tools.list_ports
-from min import MINTransportSerial
+from min import *
 import threading
 import time
 import sys
@@ -15,12 +15,19 @@ class PythonMin:
     def isConnected(self) -> bool:
         return self.connectState
 
-    def connect(self, port:str, baudrate:int) -> None:
-        self.minHandle = MINTransportSerial(port=port, baudrate=baudrate)
-        self.connectState = True
+    def connect(self, port:str, baudrate:int) -> bool:
+        retVal = False
+        try:
+            self.minHandle = MINTransportSerial(port=port, baudrate=baudrate)
+            self.connectState = True
+            retVal = True
+        except MINConnectionError:
+            retVal = False
+        return retVal
     
     def close(self) -> None:
         self.minHandle.close()
+        self.minHandle.portStatus = False
         self.connectState = False
 
     def send(self, payload:bytes) -> None:
@@ -84,6 +91,9 @@ class UARTInterface:
         self.data_entry = tk.Entry(self.input_frame, width=50)
         self.data_entry.grid(row=0, column=2, padx=5)
 
+        # Liên kết phím Enter với hàm send_data
+        self.data_entry.bind('<Return>', self.send_data_event)
+
         # Nút gửi dữ liệu
         self.send_button = tk.Button(self.input_frame, text="Send", command=self.send_data, bg="lightblue", width=15)
         self.send_button.grid(row=0, column=3, padx=5)
@@ -116,7 +126,7 @@ class UARTInterface:
         if self.minHandler.isConnected():
             self.minHandler.close()
             # Ngắt kết nối
-            self.log("Disconnected.")
+            self.log_info("Disconnected.")
             self.connect_button.config(text="Connect", bg="lightgreen")
             self.send_button.config(state='disabled')
         else:
@@ -125,13 +135,19 @@ class UARTInterface:
             baudrate = self.baudrate_var.get()
 
             if port and baudrate:
-                    self.minHandler.connect(port=port,baudrate=baudrate)
-                    self.log(f"Connected to {port} at {baudrate} baudrate.")
-                    self.connect_button.config(text="Disconnect", bg="lightcoral")
-                    self.send_button.config(state='normal')
+                    if self.minHandler.connect(port=port,baudrate=baudrate):
+                        self.log_info(f"Connected to {port} at {baudrate} baudrate.")
+                        self.connect_button.config(text="Disconnect", bg="lightcoral")
+                        self.send_button.config(state='normal')
+                    else:
+                        self.log_error(f"Serial port {port} opening error!")
+
             else:
-                self.log("Please select a port and baudrate!")
+                self.log_error("Please select a port and baudrate!")
     
+    def send_data_event(self, event):
+        """Gửi dữ liệu khi nhấn phím Enter."""
+        self.send_data()
 
     def send_data(self):
         """Gửi dữ liệu hex qua UART và hiển thị kết quả."""
@@ -149,30 +165,43 @@ class UARTInterface:
                     else:
                         self.minHandler.min_id = min_id
                 except ValueError as e:
-                    self.log(f"{e}")
+                    self.log_error(f"{e}")
                 if hex_data:
                     try:
                         # Chuyển đổi dữ liệu từ chuỗi hex sang byte
                         data_bytes = bytes.fromhex(hex_data)
                         self.minHandler.send(data_bytes)
-                        self.log(f"[{hex(self.minHandler.min_id)[2:]}] <-- {self.format_hex(hex_data)}")
+                        self.log_tx(f"[{hex(self.minHandler.min_id)[2:]}] <<< {self.format_hex(hex_data)}")
                     except ValueError:
-                        self.log("Invalid hex data!")
+                        self.log_error("Invalid hex data!")
                 else:
-                    self.log("Please enter hex data!")
+                    self.log_error("Please enter hex data!")
             else:
-                self.log("Please enter ID data!")
+                self.log_error("Please enter ID data!")
         else:
-            self.log("Not connected to any port!")
+            self.log_error("Not connected to any port!")
 
     def format_hex(self, hex_str):
         """Định dạng chuỗi hex theo dạng '01 02 03 04'."""
         return ' '.join(hex_str[i:i+2] for i in range(0, len(hex_str), 2))
 
-    def log(self, message):
+    def log_tx(self, message):
+        self.log(message=message, color="orange")
+
+    def log_rx(self, message):
+        self.log(message=message, color="blue")
+
+    def log_error(self, message):
+        self.log(message=message, color="red")
+    
+    def log_info(self, message):
+        self.log(message=message, color="green")
+
+    def log(self, message, color:str):
         """Hiển thị thông điệp trong khung log."""
         self.log_text.config(state='normal')
-        self.log_text.insert(tk.END, message + "\n")
+        self.log_text.tag_configure(color, foreground=color, font=("Helvetica", 13))
+        self.log_text.insert(tk.END, message + "\n", color)
         self.log_text.config(state='disabled')
         self.log_text.yview(tk.END)
 
@@ -198,7 +227,7 @@ def background_task(app:UARTInterface, minHandler:PythonMin):
             if frames:
                 for frame in frames:
                     hexdata = frame.payload.hex()
-                    app.log(f"[{hex(frame.min_id)[2:]}] --> {app.format_hex(hexdata)}")
+                    app.log_rx(f"[{hex(frame.min_id)[2:]}] >>> {app.format_hex(hexdata)}")
         time.sleep(0.1)
 
 if __name__ == "__main__":
