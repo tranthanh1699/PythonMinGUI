@@ -131,6 +131,7 @@ class UARTInterface:
             self.send_button.config(state='disabled')
         else:
             # Kết nối
+            self.clear_data()
             port = self.port_var.get()
             baudrate = self.baudrate_var.get()
 
@@ -171,7 +172,7 @@ class UARTInterface:
                         # Chuyển đổi dữ liệu từ chuỗi hex sang byte
                         data_bytes = bytes.fromhex(hex_data)
                         self.minHandler.send(data_bytes)
-                        self.log_tx(f"[{hex(self.minHandler.min_id)[2:]}] <<< {self.format_hex(hex_data)}")
+                        self.log_tx(f"[{hex(self.minHandler.min_id)[2:]}] <<< {self.format_hex(hex_data)}".upper())
                     except ValueError:
                         self.log_error("Invalid hex data!")
                 else:
@@ -227,7 +228,7 @@ def background_task(app:UARTInterface, minHandler:PythonMin):
             if frames:
                 for frame in frames:
                     hexdata = frame.payload.hex()
-                    app.log_rx(f"[{hex(frame.min_id)[2:]}] >>> {app.format_hex(hexdata)}")
+                    app.log_rx(f"[{hex(frame.min_id)[2:]}] >>> {app.format_hex(hexdata).upper()}")
         time.sleep(0.1)
 
 if __name__ == "__main__":
