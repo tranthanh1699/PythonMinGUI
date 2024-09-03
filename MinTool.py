@@ -9,9 +9,12 @@ import sys
 
 class PythonMin:
     def __init__(self) -> None:
-        self.minHandle    = None
-        self.connectState = False
-        self.min_id       = 16
+        self.minHandle     = None
+        self.connectState  = False
+        self.min_id        = 16
+        self._startTime    = time.perf_counter()
+        self._elapsed_time = 0
+
     def isConnected(self) -> bool:
         return self.connectState
 
@@ -33,6 +36,11 @@ class PythonMin:
     def send(self, payload:bytes) -> None:
         self.minHandle.send_frame(min_id=self.min_id, payload=payload)
 
+    def precise_timer(self) -> str:
+        current_time = time.perf_counter()
+        self._elapsed_time = current_time - self._startTime
+        retStr = f"{self._elapsed_time:.4f}"
+        return retStr
 
 
 
@@ -172,7 +180,7 @@ class UARTInterface:
                         # Chuyển đổi dữ liệu từ chuỗi hex sang byte
                         data_bytes = bytes.fromhex(hex_data)
                         self.minHandler.send(data_bytes)
-                        self.log_tx(f"[{hex(self.minHandler.min_id)[2:]}] <<< {self.format_hex(hex_data)}".upper())
+                        self.log_tx(f"[{self.minHandler.precise_timer()}]  [{hex(self.minHandler.min_id)[2:]}] <<< {self.format_hex(hex_data)}".upper())
                     except ValueError:
                         self.log_error("Invalid hex data!")
                 else:
@@ -228,7 +236,7 @@ def background_task(app:UARTInterface, minHandler:PythonMin):
             if frames:
                 for frame in frames:
                     hexdata = frame.payload.hex()
-                    app.log_rx(f"[{hex(frame.min_id)[2:]}] >>> {app.format_hex(hexdata).upper()}")
+                    app.log_rx(f"[{minHandler.precise_timer()}]  [{hex(frame.min_id)[2:]}] >>> {app.format_hex(hexdata).upper()}")
         time.sleep(0.1)
 
 if __name__ == "__main__":
