@@ -35,7 +35,9 @@ class PythonMin:
 
     def send(self, payload:bytes) -> None:
         self.minHandle.send_frame(min_id=self.min_id, payload=payload)
-
+    
+    def resetTimer(self) -> None:
+        self._startTime    = time.perf_counter()
     def precise_timer(self) -> str:
         current_time = time.perf_counter()
         self._elapsed_time = current_time - self._startTime
@@ -93,6 +95,7 @@ class UARTInterface:
         self.id_label.grid(row=0, column=0, padx=5)
         
         self.id_entry = tk.Entry(self.input_frame, width=10)
+        self.id_entry.insert(0, "16")
         self.id_entry.grid(row=0, column=1, padx=5)
 
         # Ô nhập dữ liệu dạng số hex, to hơn và lệch về bên trái
@@ -140,6 +143,7 @@ class UARTInterface:
         else:
             # Kết nối
             self.clear_data()
+            self.minHandler.resetTimer()
             port = self.port_var.get()
             baudrate = self.baudrate_var.get()
 
