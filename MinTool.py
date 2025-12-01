@@ -14,6 +14,8 @@ class PythonMin:
         self.min_id        = 16
         self._startTime    = time.perf_counter()
         self._elapsed_time = 0
+        self.tester_present_enabled = False
+        self.tester_present_suppress = False
 
     def isConnected(self) -> bool:
         return self.connectState
@@ -53,7 +55,7 @@ class UARTInterface:
         self.minHandler = minHandler
         
         # Kích thước cố định cho giao diện
-        self.root.geometry("700x600")
+        self.root.geometry("700x650")
         self.root.resizable(False, False)
 
         # Frame chứa phần chọn cổng và baudrate
@@ -109,6 +111,41 @@ class UARTInterface:
         self.send_button = tk.Button(self.input_frame, text="Send", command=self.send_data, bg="lightblue", width=15)
         self.send_button.grid(row=0, column=3, padx=5)
         self.send_button.config(state='disabled')
+
+        # Frame chứa tester present (ngay dưới ô gửi)
+        self.tester_frame = tk.Frame(root)
+        self.tester_frame.pack(pady=10, anchor='w')
+
+        # Checkbox để bật/tắt tester present
+        self.tester_present_var = tk.BooleanVar()
+        self.tester_present_check = tk.Checkbutton(
+            self.tester_frame, 
+            text="Tester Present (3000ms)", 
+            variable=self.tester_present_var,
+            command=self.toggle_tester_present
+        )
+        self.tester_present_check.grid(row=0, column=0, padx=5)
+
+        # Radio button để chọn suppress positive response
+        self.suppress_var = tk.BooleanVar(value=False)
+        self.suppress_off_radio = tk.Radiobutton(
+            self.tester_frame,
+            text="3E 00",
+            variable=self.suppress_var,
+            value=False
+        )
+        self.suppress_off_radio.grid(row=0, column=1, padx=5)
+
+        self.suppress_on_radio = tk.Radiobutton(
+            self.tester_frame,
+            text="3E 80",
+            variable=self.suppress_var,
+            value=True
+        )
+        self.suppress_on_radio.grid(row=0, column=2, padx=5)
+
+        # Biến quản lý timer tester present
+        self.tester_present_timer = None
 
         # Khung cuộn để hiển thị dữ liệu đã gửi và nhận
         self.log_text = scrolledtext.ScrolledText(root, width=80, height=26, state='disabled')
@@ -224,9 +261,60 @@ class UARTInterface:
         self.log_text.delete(1.0, tk.END)
         self.log_text.config(state='disabled')
     
+    def toggle_tester_present(self):
+        """Bật/tắt tester present."""
+        if self.tester_present_var.get():
+            if self.minHandler.isConnected():
+                self.minHandler.tester_present_enabled = True
+                self.minHandler.tester_present_suppress = self.suppress_var.get()
+                self.send_tester_present()
+                self.log_info("Tester Present enabled")
+            else:
+                self.tester_present_var.set(False)
+                self.log_error("Please connect first!")
+        else:
+            self.minHandler.tester_present_enabled = False
+            if self.tester_present_timer:
+                self.root.after_cancel(self.tester_present_timer)
+                self.tester_present_timer = None
+            self.log_info("Tester Present disabled")
+
+    def send_tester_present(self):
+        """Gửi tester present message."""
+        if self.minHandler.isConnected() and self.minHandler.tester_present_enabled:
+            # Cập nhật suppress bit từ UI
+            self.minHandler.tester_present_suppress = self.suppress_var.get()
+            
+            # Tạo payload
+            if self.minHandler.tester_present_suppress:
+                payload = bytes([0x3E, 0x80])
+                hex_str = "3E 80"
+            else:
+                payload = bytes([0x3E, 0x00])
+                hex_str = "3E 00"
+            
+            # Gửi frame
+            old_min_id = self.minHandler.min_id
+            self.minHandler.min_id = 16  # Sử dụng ID 16 cho tester present
+            self.minHandler.send(payload)
+            self.log_tx(f"[{self.minHandler.precise_timer()}]  [{hex(self.minHandler.min_id)[2:]}] <<< {hex_str}")
+            self.minHandler.min_id = old_min_id
+            
+            # Lên lịch gửi tiếp sau 3000ms
+            self.tester_present_timer = self.root.after(3000, self.send_tester_present)
+        else:
+            # Tắt tester present nếu mất kết nối
+            if self.tester_present_timer:
+                self.root.after_cancel(self.tester_present_timer)
+                self.tester_present_timer = None
+            self.tester_present_var.set(False)
+            self.minHandler.tester_present_enabled = False
+
     def on_closing(self):
         """Đảm bảo ngắt kết nối và dừng thread khi đóng ứng dụng."""
         self.running = False
+        if self.tester_present_timer:
+            self.root.after_cancel(self.tester_present_timer)
         if self.serial_conn and self.serial_conn.is_open:
             self.serial_conn.close()
         self.root.destroy()
